@@ -14,7 +14,8 @@ from FlaskWebProject import LOG
 import msal
 import uuid
 
-imageSourceUrl = 'https://'+ app.config['BLOB_ACCOUNT']  + '.blob.core.windows.net/' + app.config['BLOB_CONTAINER']  + '/'
+# Blob storage base URL
+imageSourceUrl = 'https://' + app.config['BLOB_ACCOUNT'] + '.blob.core.windows.net/' + app.config['BLOB_CONTAINER'] + '/'
 
 
 @app.route('/')
@@ -37,8 +38,7 @@ def new_post():
     if form.validate_on_submit():
         post = Post()
         post.save_changes(form, request.files['image_path'], current_user.id, new=True)
-        # LOG Informational
-        LOG.info('New post added by user: %s', current_user.id)
+        LOG.info('INFO: New post added by user: %s', str(current_user.id))
         return redirect(url_for('home'))
     return render_template(
         'post.html',
@@ -55,8 +55,7 @@ def post(id):
     form = PostForm(formdata=request.form, obj=post)
     if form.validate_on_submit():
         post.save_changes(form, request.files['image_path'], current_user.id)
-        # LOG Informational
-        LOG.info('Post %s edited by user: %s', id, current_user.id)
+        LOG.info('INFO: Post %s edited by user: %s', str(id), str(current_user.id))
         return redirect(url_for('home'))
     return render_template(
         'post.html',
@@ -69,68 +68,84 @@ def post(id):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
-        # LOG Informational
-        LOG.info('User %s is already authenticated', current_user.id)
+        LOG.info('INFO: User %s is already authenticated.', str(current_user.id))
         return redirect(url_for('home'))
+
     form = LoginForm()
     if form.validate_on_submit():
         user = User.query.filter_by(username=form.username.data).first()
         if user is None or not user.check_password(form.password.data):
             flash('Invalid username or password')
-            # LOG Unsuccessful login
-            LOG.warning('Invalid login attempt with username: %s', form.username.data)
+            LOG.warning('WARNING: Invalid login attempt for user: %s', str(form.username.data))
             return redirect(url_for('login'))
+
         login_user(user, remember=form.remember_me.data)
-        LOG.info('User %s successfully logged in via form', user.username)
+        LOG.info('INFO: User %s logged in successfully (local auth).', str(user.id))
         next_page = request.args.get('next')
         if not next_page or url_parse(next_page).netloc != '':
             next_page = url_for('home')
         return redirect(next_page)
+
+    # Azure AD login
     session["state"] = str(uuid.uuid4())
     auth_url = _build_auth_url(scopes=Config.SCOPE, state=session["state"])
+    LOG.info("INFO: Redirecting to Microsoft Login Page...")
     return render_template('login.html', title='Sign In', form=form, auth_url=auth_url)
 
 
-@app.route(Config.REDIRECT_PATH)  # Its absolute URL must match your app's redirect_uri set in AAD
+@app.route(Config.REDIRECT_PATH)
 def authorized():
     if request.args.get('state') != session.get("state"):
-        return redirect(url_for("home"))  # No-OP. Goes back to Index page
-    if "error" in request.args:  # Authentication/Authorization failure
-        LOG.error('Authentication/Authorization failure: %s', request.args)
+        LOG.error("ERROR: State mismatch during MSAL auth flow.")
+        return redirect(url_for("home"))
+
+    if "error" in request.args:
+        LOG.error("ERROR: Authentication/Authorization failure: %s", request.args)
         return render_template("auth_error.html", result=request.args)
+
     if request.args.get('code'):
         cache = _load_cache()
         result = _build_msal_app(cache=cache).acquire_token_by_authorization_code(
             request.args['code'],
             scopes=Config.SCOPE,
-            redirect_uri=url_for('authorized', _external=True, _scheme='https'))
+            redirect_uri=url_for('authorized', _external=True, _scheme='https')
+        )
+
         if "error" in result:
-            LOG.error('Did not acquire a token for OAUTH: %s', result)
+            LOG.error("ERROR: Token acquisition failed: %s", result)
             return render_template("auth_error.html", result=result)
+
         session["user"] = result.get("id_token_claims")
-        # Note: In a real app, we'd use the 'name' property from session["user"] below
-        # Here, we'll use the admin username for anyone who is authenticated by MS
         user = User.query.filter_by(username="admin").first()
         login_user(user)
         _save_cache(cache)
-        LOG.info('User %s logged in via Azure AD', user.username)
+        LOG.info('INFO: User logged in successfully with Azure AD.')
     return redirect(url_for('home'))
 
 
 @app.route('/logout')
 def logout():
     if current_user.is_authenticated:
-        LOG.info('User %s logged out', current_user.id)
+        LOG.info('INFO: User %s logged out.', str(current_user.id))
+    else:
+        LOG.info('INFO: Logout called but no user was logged in.')
+
     logout_user()
-    if session.get("user"):  # Used MS Login
-        # Wipe out user and its token cache from session
+
+    if session.get("user"):  # Used MSAL login
         session.clear()
-        # Also logout from your tenant's web session        
+        LOG.info("INFO: Clearing Microsoft session and redirecting to AAD logout.")
         return redirect(
             Config.AUTHORITY + "/oauth2/v2.0/logout" +
-            "?post_logout_redirect_uri=" + url_for("login", _external=True))
+            "?post_logout_redirect_uri=" + url_for("login", _external=True)
+        )
+
     return redirect(url_for('login'))
 
+
+# =========================
+# Helper Functions
+# =========================
 
 def _load_cache():
     cache = msal.SerializableTokenCache()
@@ -157,4 +172,5 @@ def _build_auth_url(authority=None, scopes=None, state=None):
     return _build_msal_app(authority=authority).get_authorization_request_url(
         scopes or [],
         state=state or str(uuid.uuid4()),
-        redirect_uri=url_for('authorized', _external=True, _scheme='https'))
+        redirect_uri=url_for('authorized', _external=True, _scheme='https')
+    )
