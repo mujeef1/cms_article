@@ -5,7 +5,7 @@ basedir = os.path.abspath(os.path.dirname(__file__))
 class Config(object):
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'secret-key'
 
-    BLOB_ACCOUNT = os.environ.get('BLOB_ACCOUNT') or 'images1'
+    BLOB_ACCOUNT = os.environ.get('BLOB_ACCOUNT') or 'images12'
     BLOB_STORAGE_KEY = os.environ.get('BLOB_STORAGE_KEY') or 'aH2f3XY2wBDSPRhaC/Et1CIBX3a6Ue9Pf4zmNZd1dACV2NJr1+ti1Au5uLWMDCGEzhXRX04v0CM4+ASti94kvQ=='
     BLOB_CONTAINER = os.environ.get('BLOB_CONTAINER') or 'images'
 
@@ -39,4 +39,5 @@ class Config(object):
     SCOPE = ["User.Read"] # Only need to read user profile for this app
 
     SESSION_TYPE = "filesystem"  # Token cache will be stored in server-side session
+
 
