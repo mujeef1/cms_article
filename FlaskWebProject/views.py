@@ -16,6 +16,7 @@ import uuid
 
 imageSourceUrl = 'https://'+ app.config['BLOB_ACCOUNT']  + '.blob.core.windows.net/' + app.config['BLOB_CONTAINER']  + '/'
 
+
 @app.route('/')
 @app.route('/home')
 @login_required
@@ -28,6 +29,7 @@ def home():
         posts=posts
     )
 
+
 @app.route('/new_post', methods=['GET', 'POST'])
 @login_required
 def new_post():
@@ -36,7 +38,7 @@ def new_post():
         post = Post()
         post.save_changes(form, request.files['image_path'], current_user.id, new=True)
         # LOG Informational
-        LOG.info('INFO: New post added by user: ' + str(current_user.id))
+        LOG.info('New post added by user: %s', current_user.id)
         return redirect(url_for('home'))
     return render_template(
         'post.html',
@@ -54,7 +56,7 @@ def post(id):
     if form.validate_on_submit():
         post.save_changes(form, request.files['image_path'], current_user.id)
         # LOG Informational
-        LOG.info('INFO: Post ' + str(id) + ' edited by user: ' + str(current_user.id))
+        LOG.info('Post %s edited by user: %s', id, current_user.id)
         return redirect(url_for('home'))
     return render_template(
         'post.html',
@@ -63,11 +65,12 @@ def post(id):
         form=form
     )
 
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
         # LOG Informational
-        LOG.info('INFO: User ' + str(current_user.id) + ' is authenticated...')
+        LOG.info('User %s is already authenticated', current_user.id)
         return redirect(url_for('home'))
     form = LoginForm()
     if form.validate_on_submit():
@@ -75,9 +78,10 @@ def login():
         if user is None or not user.check_password(form.password.data):
             flash('Invalid username or password')
             # LOG Unsuccessful login
-            LOG.warning('WARNING: Login Unsucessful....Invalid username or password for user:' + str(user))
+            LOG.warning('Invalid login attempt with username: %s', form.username.data)
             return redirect(url_for('login'))
         login_user(user, remember=form.remember_me.data)
+        LOG.info('User %s successfully logged in via form', user.username)
         next_page = request.args.get('next')
         if not next_page or url_parse(next_page).netloc != '':
             next_page = url_for('home')
@@ -86,25 +90,22 @@ def login():
     auth_url = _build_auth_url(scopes=Config.SCOPE, state=session["state"])
     return render_template('login.html', title='Sign In', form=form, auth_url=auth_url)
 
+
 @app.route(Config.REDIRECT_PATH)  # Its absolute URL must match your app's redirect_uri set in AAD
 def authorized():
     if request.args.get('state') != session.get("state"):
         return redirect(url_for("home"))  # No-OP. Goes back to Index page
     if "error" in request.args:  # Authentication/Authorization failure
-        #LOG Error
-        LOG.error('ERROR: Authentication/Authorization failure...')
+        LOG.error('Authentication/Authorization failure: %s', request.args)
         return render_template("auth_error.html", result=request.args)
     if request.args.get('code'):
         cache = _load_cache()
-        # TODO: Acquire a token from a built msal app, along with the appropriate redirect URI
-        # DONE
         result = _build_msal_app(cache=cache).acquire_token_by_authorization_code(
-     request.args['code'],
-     scopes=Config.SCOPE,
-     redirect_uri=url_for('authorized', _external=True, _scheme='https'))
+            request.args['code'],
+            scopes=Config.SCOPE,
+            redirect_uri=url_for('authorized', _external=True, _scheme='https'))
         if "error" in result:
-            #LOG Error
-            LOG.error('ERROR: Did not acquire a token for OAUTH...')
+            LOG.error('Did not acquire a token for OAUTH: %s', result)
             return render_template("auth_error.html", result=result)
         session["user"] = result.get("id_token_claims")
         # Note: In a real app, we'd use the 'name' property from session["user"] below
@@ -112,50 +113,48 @@ def authorized():
         user = User.query.filter_by(username="admin").first()
         login_user(user)
         _save_cache(cache)
-        # LOG
-        LOG.info('INFO: User Logged In...')
+        LOG.info('User %s logged in via Azure AD', user.username)
     return redirect(url_for('home'))
+
 
 @app.route('/logout')
 def logout():
-    #LOG
-    LOG.info('INFO: User ' + str(current_user.id) + ' logged out...')
+    if current_user.is_authenticated:
+        LOG.info('User %s logged out', current_user.id)
     logout_user()
-    if session.get("user"): # Used MS Login
+    if session.get("user"):  # Used MS Login
         # Wipe out user and its token cache from session
         session.clear()
         # Also logout from your tenant's web session        
         return redirect(
             Config.AUTHORITY + "/oauth2/v2.0/logout" +
             "?post_logout_redirect_uri=" + url_for("login", _external=True))
-
     return redirect(url_for('login'))
 
+
 def _load_cache():
-    # TODO: Load the cache from `msal`, if it exists
-    # DONE
     cache = msal.SerializableTokenCache()
     if session.get('token_cache'):
         cache.deserialize(session['token_cache'])
     return cache
 
+
 def _save_cache(cache):
-    # TODO: Save the cache, if it has changed
-    # DONE
     if cache.has_state_changed:
         session['token_cache'] = cache.serialize()
 
+
 def _build_msal_app(cache=None, authority=None):
-    # TODO: Return a ConfidentialClientApplication
-    # DONE
     return msal.ConfidentialClientApplication(
-     Config.CLIENT_ID, authority=authority or Config.AUTHORITY,
-     client_credential=Config.CLIENT_SECRET, token_cache=cache)
+        Config.CLIENT_ID,
+        authority=authority or Config.AUTHORITY,
+        client_credential=Config.CLIENT_SECRET,
+        token_cache=cache
+    )
+
 
 def _build_auth_url(authority=None, scopes=None, state=None):
-    # TODO: Return the full Auth Request URL with appropriate Redirect URI
-    #DONE
     return _build_msal_app(authority=authority).get_authorization_request_url(
-    scopes or [],
-    state=state or str(uuid.uuid4()),
-    redirect_uri=url_for('authorized', _external=True, _scheme='https'))
+        scopes or [],
+        state=state or str(uuid.uuid4()),
+        redirect_uri=url_for('authorized', _external=True, _scheme='https'))
