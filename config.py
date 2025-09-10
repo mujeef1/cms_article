@@ -19,7 +19,7 @@ class Config(object):
 
     ### Info for MS Authentication ###
     ### As adapted from: https://github.com/Azure-Samples/ms-identity-python-webapp ###
-    CLIENT_SECRET = "A4h8Q~KdX-lRJtGtKtiVxvu3bEfGzS6P9~ScNaBk"
+    CLIENT_SECRET = "fzR8Q~6QQ1fbKFPmevR8T.bKRpbdujdu9UO~Fa7z"
     # In your production app, Microsoft recommends you to use other ways to store your secret,
     # such as KeyVault, or environment variable as described in Flask's documentation here:
     # https://flask.palletsprojects.com/en/1.1.x/config/#configuring-from-environment-variables
@@ -39,6 +39,7 @@ class Config(object):
     SCOPE = ["User.Read"] # Only need to read user profile for this app
 
     SESSION_TYPE = "filesystem"  # Token cache will be stored in server-side session
+
 
 
 
